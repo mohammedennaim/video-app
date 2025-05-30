@@ -55,9 +55,10 @@ class VideoProcessor:
         
         if fps is None:
             fps = self.fps
-        
-        # Créer le répertoire de sortie
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+          # Créer le répertoire de sortie
+        output_dir = os.path.dirname(output_path)
+        if output_dir:  # Only create directory if there's a path
+            os.makedirs(output_dir, exist_ok=True)
         
         # Configuration du codec
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')

@@ -128,14 +128,15 @@ def main():
         window = VideoRestorationApp()
         window.show()
         return app.exec_()
-    
-    # Traitement en ligne de commande
+      # Traitement en ligne de commande
     if not args.output:
         base_name = Path(args.input).stem
         args.output = f"data/output/{base_name}_restored.mp4"
     
     # Créer les répertoires de sortie
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    output_dir = os.path.dirname(args.output)
+    if output_dir:  # Only create directory if there's a path
+        os.makedirs(output_dir, exist_ok=True)
     os.makedirs('results', exist_ok=True)
     
     restored_paths = {}
