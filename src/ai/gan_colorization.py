@@ -8,12 +8,10 @@ import cv2
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List, Tuple, Optional
-import os
-from pathlib import Path
-import requests
-from PIL import Image
+from typing import List, Optional
 import torchvision.transforms as transforms
+from PIL import Image
+import os
 
 # Import des modules d'optimisation
 try:
@@ -98,7 +96,8 @@ class UNetGenerator(nn.Module):
 
 class GANColorization:
     """Classe principale pour la colorisation GAN."""
-      def __init__(self, model_path: Optional[str] = None, device: Optional[str] = None):
+    
+    def __init__(self, model_path: Optional[str] = None, device: Optional[str] = None):
         """
         Initialise le système de colorisation GAN avec optimisations.
         
@@ -115,31 +114,19 @@ class GANColorization:
                 self.acceleration_manager = AccelerationManager()
                 self.acceleration_manager.apply_optimizations()
                 
-                # Utiliser le device recommandé si non spécifié
-                if device is None:
-                    device_type, device_info = self.acceleration_manager.detector.get_recommended_device()
-                    if device_type == 'cuda':
-                        device = f"cuda:{device_info['id']}"
-                    else:
-                        device = 'cpu'
-                
                 # Configuration du processeur optimisé
-                config = self.acceleration_manager.get_processing_config()
                 if OptimizedVideoProcessor is not None:
-                    self.optimized_processor = OptimizedVideoProcessor(
-                        batch_size=config['batch_size'],
-                        max_workers=config['num_workers'],
-                        enable_cache=True
-                    )
+                    self.optimized_processor = OptimizedVideoProcessor()
                     
-                print(f"🚀 Accélération GPU activée - Device: {device}")
+                print(f"🚀 Accélération GPU activée")
                 
             except Exception as e:
                 print(f"⚠️  Erreur lors de l'initialisation GPU: {e}")
-                device = device or 'cpu'
-        else:
-            device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
         
+        # Détecter le device automatiquement si non spécifié
+        if device is None:
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            
         self.device = torch.device(device)
         print(f"🤖 Utilisation du device: {self.device}")
         
@@ -182,7 +169,8 @@ class GANColorization:
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
-      def colorize_video(self, frames: List[np.ndarray]) -> List[np.ndarray]:
+    
+    def colorize_video(self, frames: List[np.ndarray]) -> List[np.ndarray]:
         """
         Colorise une séquence vidéo avec optimisations.
         
@@ -193,8 +181,7 @@ class GANColorization:
             Frames colorisées
         """
         print("🎨 Colorisation GAN en cours...")
-        
-        # Utiliser le processeur optimisé si disponible
+          # Utiliser le processeur optimisé si disponible
         if self.optimized_processor is not None:
             try:
                 print("🚀 Utilisation du processeur optimisé")
@@ -203,12 +190,9 @@ class GANColorization:
                 def process_single_frame(frame):
                     return self._colorize_frame(frame)
                 
-                # Traitement optimisé avec cache et parallélisation
-                colorized_frames = self.optimized_processor.process_video_optimized(
-                    frames=frames,
-                    process_func=process_single_frame,
-                    operation_id="gan_colorization",
-                    use_parallel=len(frames) > 4
+                # Traitement optimisé par batch
+                colorized_frames = self.optimized_processor.process_frames_batch(
+                    frames, process_single_frame, batch_size=4
                 )
                 
                 print(f"✅ Colorisation optimisée terminée: {len(colorized_frames)} frames")
@@ -248,23 +232,26 @@ class GANColorization:
         if len(frame.shape) == 3:
             gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         else:
-            gray_frame = frame.copy()
-        
-        # Convertir en PIL Image et préprocesser
+            gray_frame = frame.copy()        # Convertir en PIL Image et préprocesser
         pil_image = Image.fromarray(gray_frame).convert('L')
-        input_tensor = self.transform(pil_image).unsqueeze(0).to(self.device)
+        input_tensor = self.transform(pil_image)
+        if isinstance(input_tensor, torch.Tensor):
+            input_tensor = input_tensor.unsqueeze(0).to(self.device)
+        else:
+            # Fallback si transform ne retourne pas un tensor
+            input_tensor = torch.from_numpy(np.array(pil_image)).float().unsqueeze(0).unsqueeze(0).to(self.device)
+            input_tensor = (input_tensor / 255.0 - 0.5) / 0.5
         
         # Prédiction
         with torch.no_grad():
             ab_output = self.generator(input_tensor)
-        
-        # Post-processing
+          # Post-processing
         colorized = self._lab_to_rgb(input_tensor, ab_output, original_shape)
         
         return colorized
     
     def _lab_to_rgb(self, l_tensor: torch.Tensor, ab_tensor: torch.Tensor, 
-                    original_shape: Tuple[int, int]) -> np.ndarray:
+                    original_shape: Optional[tuple] = None) -> np.ndarray:
         """
         Convertit les canaux LAB en image RGB.
         
@@ -275,7 +262,8 @@ class GANColorization:
             
         Returns:
             Image RGB
-        """        # Dénormaliser les tenseurs
+        """
+        # Dénormaliser les tenseurs
         l_channel = l_tensor.squeeze().cpu() 
         # Manual denormalization: inverse of transforms.Normalize(mean=[-1], std=[2])
         l_channel = (l_channel + 1) / 2  # Convert from [-1,1] to [0,1]
@@ -305,9 +293,8 @@ class GANColorization:
         
         # Normaliser et convertir en uint8
         rgb_image = np.clip(rgb_image * 255, 0, 255).astype(np.uint8)
-        
-        # Redimensionner à la taille originale
-        if rgb_image.shape[:2] != original_shape:
+          # Redimensionner à la taille originale
+        if original_shape is not None and rgb_image.shape[:2] != original_shape:
             rgb_image = cv2.resize(rgb_image, (original_shape[1], original_shape[0]))
         
         # Convertir RGB vers BGR pour OpenCV
