@@ -33,42 +33,72 @@ class ClassicalColorizer:
         pil_img = Image.fromarray(img)
         preprocess = torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),        ])
+            torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
         input_tensor = preprocess(pil_img).unsqueeze(0).to(self.device)
         with torch.no_grad():
             output = self.seg_model(input_tensor)['out'][0]
         seg = output.argmax(0).cpu().numpy()
         return seg
-    
+
     def colorize(self, video_path, class_to_color):
         cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS)
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        
-        # Ensure output directory exists
-        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        output_dir = os.path.join(current_dir, 'static', 'output')
-        ensure_directory(output_dir)
-        
-        output_path = os.path.join(output_dir, 'object_aware_classical_colorized.mp4')
+
+        # Get segmentation for the first frame (assuming relatively static objects)
+        ret, first_frame = cap.read()
+        if not ret:
+             cap.release()
+             raise Exception("Could not read the first frame for segmentation.")
+        first_frame_seg = self.segment(first_frame)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0) # Reset video capture to the beginning
+
+        output_path = os.path.join('static', 'output', 'object_aware_classical_colorized.mp4')
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
         with tqdm(total=total_frames, desc="Object-aware Colorizing video") as pbar:
             while cap.isOpened():
                 ret, frame = cap.read()
                 if not ret:
                     break
-                seg = self.segment(frame)
-                colorized = np.zeros_like(frame)
-                for class_idx, color in class_to_color.items():
+
+                # Use the first frame's segmentation for the current frame
+                seg = cv2.resize(first_frame_seg.astype(np.uint8), (width, height), interpolation=cv2.INTER_NEAREST)
+
+                colorized_frame = np.zeros_like(frame, dtype=np.float32)
+                frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+                for class_idx, color_rgb in class_to_color.items():
                     mask = (seg == class_idx)
-                    colorized[mask] = color
-                # Blend with original for realism
-                colorized = cv2.addWeighted(frame, 0.3, colorized, 0.7, 0)
-                out.write(colorized)
+                    if np.any(mask):
+                         # Apply color as a tint based on grayscale intensity
+                         color = np.array(color_rgb).astype(np.float32) / 255.0
+                         segment_gray = frame_gray[mask].astype(np.float32) / 255.0
+                         # Simple tinting: modulate color channels by grayscale intensity
+                         tinted_segment = color * segment_gray[:, np.newaxis]
+                         # Apply back to the colorized frame
+                         colorized_frame[mask] = tinted_segment * 255.0
+
+                # Blend the tinted colorized frame with the original grayscale for realism
+                # Convert grayscale frame to float32 RGB for blending
+                frame_gray_rgb = cv2.cvtColor(frame_gray, cv2.COLOR_GRAY2RGB).astype(np.float32)
+
+                # Create a mask where color was applied (where colorized_frame is not zero)
+                color_applied_mask = np.any(colorized_frame > 0, axis=2).astype(np.float32)[:, :, np.newaxis]
+
+                # Blend based on where color was applied. Use original grayscale where no color was picked.
+                blended_frame = colorized_frame * color_applied_mask + frame_gray_rgb * (1 - color_applied_mask)
+
+                blended_frame = np.clip(blended_frame, 0, 255).astype(np.uint8)
+
+                out.write(blended_frame)
                 pbar.update(1)
+
         cap.release()
         out.release()
         return output_path
