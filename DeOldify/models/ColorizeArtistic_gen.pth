@@ -1,0 +1,5 @@
+py -3.9 -m venv deoldify-env 
+source deoldify-env/Scripts/activate 
+pip install -r C:/Users/Youcode/DeOldify/requirements-colab.txt
+pip install streamlit opencv-python pillow tqdm requests streamlit-drawable-canvas
+pip install -r requirements.txt 
