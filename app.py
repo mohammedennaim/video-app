@@ -4,6 +4,10 @@ import numpy as np
 from PIL import Image
 import tempfile
 import os
+import json
+from datetime import datetime
+import plotly.graph_objects as go
+import plotly.express as px
 from streamlit_drawable_canvas import st_canvas
 from colorization.ai_model import AIColorizer
 from colorization.classical_methods import ClassicalColorizer, COCO_CLASSES
@@ -17,6 +21,8 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 
 # Ensure output directories exist
 ensure_directory(os.path.join(current_dir, 'static', 'output'))
+ensure_directory(os.path.join(current_dir, 'static', 'templates'))
+ensure_directory(os.path.join(current_dir, 'static', 'history'))
 
 def get_scribble_and_mask(canvas_data, orig_img):
     if canvas_data is None:

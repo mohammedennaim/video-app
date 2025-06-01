@@ -1,0 +1,12 @@
+[
+  {
+    "timestamp": "2025-06-01T21:02:29.098684",
+    "video_name": "2c4d524f-f8e3-47b9-92f2-7be0bd07a520_4194524-hd_1920_1080_30fps.mp4",
+    "method": "IA - GAN Custom",
+    "metrics": {
+      "psnr": 22.348300388477952,
+      "ssim": 0.9754688411816633
+    },
+    "output_path": "C:\\Users\\Youcode\\Videos\\video-app\\static\\output\\deoldify_colorized.mp4"
+  }
+]
